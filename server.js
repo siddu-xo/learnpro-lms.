@@ -100,7 +100,7 @@ function canSendOtp(email,purpose){ const key=`${purpose}:${email}`; const now=D
 async function sendOtp(email, code, purpose){
   const subject=purpose==='email_verify'?'Verify your LearnPro account':'Reset your LearnPro password';
   const action=purpose==='email_verify'?'verify your email address':'reset your password';
-  if(!SMTP_HOST || !SMTP_USER || !SMTP_PASS){ console.log(`[LearnPro OTP] ${purpose} ${email}: ${code}`); return {dev:true}; }
+  if(!SMTP_HOST || !SMTP_USER || !SMTP_PASS){ console.log(`[LearnPro OTP] ${purpose} ${email}: ${code}`); return {dev:true,code}; }
   const transporter=nodemailer.createTransport({host:SMTP_HOST,port:SMTP_PORT,secure:SMTP_PORT===465,auth:{user:SMTP_USER,pass:SMTP_PASS}});
   await transporter.sendMail({from:SMTP_FROM,to:email,subject,text:`Your LearnPro verification code is ${code}. Use it to ${action}. It expires in ${OTP_TTL_MINUTES} minutes. Do not share this code.`});
   return {dev:false};
@@ -130,10 +130,10 @@ app.post('/api/auth/register', async (req,res)=>{
     const hash=await bcrypt.hash(password,12);
     const info=db.prepare('INSERT INTO users(name,email,password_hash,role,active,email_verified) VALUES(?,?,?,\'student\',1,0)').run(String(name).trim(),email,hash);
     const user=db.prepare('SELECT id,name,email,role,email_verified FROM users WHERE id=?').get(info.lastInsertRowid);
-    let delivery='email';
-    try{ const result=await createOtp(user,'email_verify'); delivery=result.dev?'development_log':'email'; }
+    let delivery='email'; let result;
+    try{ result=await createOtp(user,'email_verify'); delivery=result.dev?'development_log':'email'; }
     catch(e){ db.prepare('DELETE FROM users WHERE id=?').run(user.id); return res.status(503).json({error:e.message||'Could not send verification code.'}); }
-    res.status(201).json({requires_verification:true,email:user.email,delivery,message:delivery==='development_log'?'Verification code was generated in the server console. Configure SMTP to email codes.':'Verification code sent to your email.'});
+    res.status(201).json({requires_verification:true,email:user.email,delivery, ...(NODE_ENV!=='production' && delivery==='development_log' ? {dev_code:result?.code||null} : {}),message:delivery==='development_log'?'Development mode: the verification code is shown on this test screen. Configure SMTP for real email delivery.':'Verification code sent to your email.'});
   }catch(e){ res.status(409).json({error:'Email already registered.'}); }
 });
 
@@ -155,7 +155,7 @@ app.post('/api/auth/resend-verification', async (req,res)=>{
 app.post('/api/auth/request-password-reset', async (req,res)=>{
   const email=normalizeEmail(req.body?.email); const user=db.prepare("SELECT id,name,email,role FROM users WHERE email=? AND role='student'").get(email);
   if(!user) return res.json({ok:true,message:'If the account exists, a reset code has been sent.'});
-  try{ const result=await createOtp(user,'password_reset'); res.json({ok:true,delivery:result.dev?'development_log':'email',message:'If the account exists, a reset code has been sent.'}); }catch(e){res.status(429).json({error:e.message});}
+  try{ const result=await createOtp(user,'password_reset'); res.json({ok:true,delivery:result.dev?'development_log':'email',...(NODE_ENV!=='production' && result.dev ? {dev_code:result.code} : {}),message:'If the account exists, a reset code has been sent.'}); }catch(e){res.status(429).json({error:e.message});}
 });
 
 app.post('/api/auth/reset-password', async (req,res)=>{
@@ -165,6 +165,22 @@ app.post('/api/auth/reset-password', async (req,res)=>{
   if(!user) return res.status(400).json({error:'Invalid reset request.'});
   try{ consumeOtp(user.id,'password_reset',code); const hash=await bcrypt.hash(password,12); db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hash,user.id); db.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE user_id=? AND revoked_at IS NULL').run(user.id); res.json({ok:true,message:'Password reset successfully. Please log in again.'}); }
   catch(e){res.status(400).json({error:e.message});}
+});
+
+app.post('/api/auth/free-test-student', rateLimit({windowMs:60000,max:10}), async (req,res)=>{
+  if(NODE_ENV==='production') return res.status(404).json({error:'Free test access is disabled in production.'});
+  const email='test.student@learnpro.local';
+  let user=db.prepare("SELECT * FROM users WHERE email=? AND role='student'").get(email);
+  if(!user){
+    const hash=await bcrypt.hash('LearnProTest123!',10);
+    const info=db.prepare("INSERT INTO users(name,email,password_hash,role,active,email_verified) VALUES(?,?,?,?,1,1)").run('Test Student',email,hash,'student');
+    user=db.prepare('SELECT * FROM users WHERE id=?').get(info.lastInsertRowid);
+  } else if(!user.email_verified || !user.active){ db.prepare('UPDATE users SET active=1,email_verified=1 WHERE id=?').run(user.id); user=db.prepare('SELECT * FROM users WHERE id=?').get(user.id); }
+  const active=db.prepare("SELECT id FROM sessions WHERE user_id=? AND revoked_at IS NULL ORDER BY created_at ASC").all(user.id);
+  if(active.length>=2) db.prepare("UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE id=?").run(active[0].id);
+  const sessionId=crypto.randomUUID(); db.prepare('INSERT INTO sessions(id,user_id,device_label) VALUES(?,?,?)').run(sessionId,user.id,'Free test browser');
+  const safe={id:user.id,name:user.name,email:user.email,role:user.role};
+  res.json({user:safe,token:issueToken(safe,sessionId),test_account:true,message:'Free test student session created.'});
 });
 
 app.post('/api/auth/login', rateLimit({windowMs:15*60*1000,max:20,keyFn:req=>`${req.ip||'unknown'}:${normalizeEmail(req.body?.email)}`}), async (req,res)=>{
