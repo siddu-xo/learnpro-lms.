@@ -432,6 +432,11 @@ app.post('/api/student/progress',auth,(req,res)=>{
  res.json({ok:true,lesson_id:lessonId,completed:!!completed});
 });
 
+app.patch('/api/me',auth,async(req,res)=>{try{const name=String(req.body?.name||'').trim();if(!name)return res.status(400).json({error:'Name is required.'});db.prepare('UPDATE users SET name=? WHERE id=?').run(name,req.user.id);res.json({ok:true,user:db.prepare('SELECT id,name,email,role,active FROM users WHERE id=?').get(req.user.id)});}catch(e){res.status(400).json({error:'Could not update profile.'});}});
+app.post('/api/auth/change-password',auth,async(req,res)=>{try{const current=String(req.body?.current_password||''),next=String(req.body?.new_password||'');if(next.length<8)return res.status(400).json({error:'New password must be at least 8 characters.'});const u=db.prepare('SELECT password_hash FROM users WHERE id=?').get(req.user.id);if(!u||!(await bcrypt.compare(current,u.password_hash)))return res.status(400).json({error:'Current password is incorrect.'});const hash=await bcrypt.hash(next,12);db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hash,req.user.id);db.prepare('UPDATE sessions SET revoked_at=CURRENT_TIMESTAMP WHERE user_id=? AND id<>? AND revoked_at IS NULL').run(req.user.id,req.session.id);audit(req,'password_changed');res.json({ok:true,message:'Password changed. Other active sessions were logged out.'});}catch(e){res.status(400).json({error:'Could not change password.'});}});
+app.get('/api/student/payments',auth,(req,res)=>{const rows=db.prepare(`SELECT p.id,p.amount_paise,p.status,p.provider_order_id,p.provider_payment_id,p.created_at,c.title FROM payments p JOIN courses c ON c.id=p.course_id WHERE p.user_id=? ORDER BY p.id DESC`).all(req.user.id);res.json({payments:rows});});
+app.get('/api/student/materials',auth,(req,res)=>{const rows=db.prepare(`SELECT m.id,m.title,m.is_demo,m.file_url,c.id course_id,c.title course_title FROM materials m JOIN courses c ON c.id=m.course_id WHERE m.is_demo=1 OR EXISTS(SELECT 1 FROM enrollments e WHERE e.user_id=? AND e.course_id=m.course_id AND e.status='active') ORDER BY m.id DESC`).all(req.user.id);res.json({materials:rows});});
+app.get('/api/public/config',(req,res)=>res.json({razorpay_enabled:Boolean(RAZORPAY_KEY_ID&&RAZORPAY_KEY_SECRET)}));
 app.get('/api/public/courses',(req,res)=>{
   const courses=db.prepare(`SELECT id,title,description,price_paise,published FROM courses WHERE published=1 ORDER BY id DESC`).all();
   res.json({courses});
@@ -615,9 +620,7 @@ app.post('/api/payments/confirm-demo',auth,(req,res)=>{const {course_id,payment_
 
 app.get('/health',(req,res)=>res.json({ok:true,service:'LearnPro LMS'}));
 app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
-const server = app.listen(PORT, '0.0.0.0', () =>
-  console.log(`LearnPro LMS running on port ${PORT}`)
-);
+const server = app.listen(PORT, '0.0.0.0', () => console.log(`LearnPro LMS running on port ${PORT}`));
 function shutdown(signal){
   console.log(`${signal}: shutting down LearnPro LMS...`);
   server.close(()=>{ try{ db.close(); }catch(e){} process.exit(0); });
