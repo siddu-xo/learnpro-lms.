@@ -1,0 +1,120 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS users (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ name TEXT NOT NULL,
+ email TEXT NOT NULL UNIQUE,
+ password_hash TEXT NOT NULL,
+ role TEXT NOT NULL DEFAULT 'student' CHECK(role IN ('student','admin')),
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS courses (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ title TEXT NOT NULL,
+ description TEXT DEFAULT '',
+ price_paise INTEGER NOT NULL DEFAULT 0,
+ published INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS chapters (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+ title TEXT NOT NULL,
+ sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS lessons (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ chapter_id INTEGER NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+ title TEXT NOT NULL,
+ video_url TEXT,
+ is_demo INTEGER NOT NULL DEFAULT 0,
+ sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS materials (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+ title TEXT NOT NULL,
+ file_url TEXT NOT NULL,
+ is_demo INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS mcqs (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+ chapter_id INTEGER REFERENCES chapters(id) ON DELETE SET NULL,
+ question TEXT NOT NULL,
+ option_a TEXT NOT NULL,
+ option_b TEXT NOT NULL,
+ option_c TEXT NOT NULL,
+ option_d TEXT NOT NULL,
+ correct_option TEXT NOT NULL CHECK(correct_option IN ('A','B','C','D')),
+ explanation TEXT NOT NULL DEFAULT '',
+ is_demo INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS enrollments (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+ payment_ref TEXT,
+ status TEXT NOT NULL DEFAULT 'active',
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE(user_id, course_id)
+);
+CREATE TABLE IF NOT EXISTS sessions (
+ id TEXT PRIMARY KEY,
+ user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ device_label TEXT DEFAULT 'Unknown device',
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_active ON sessions(user_id, revoked_at);
+
+CREATE TABLE IF NOT EXISTS payments (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+ provider TEXT NOT NULL DEFAULT 'razorpay',
+ provider_order_id TEXT,
+ provider_payment_id TEXT,
+ amount_paise INTEGER NOT NULL,
+ status TEXT NOT NULL DEFAULT 'created',
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE(provider, provider_order_id)
+);
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
+
+
+CREATE TABLE IF NOT EXISTS notifications (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+ title TEXT NOT NULL,
+ message TEXT NOT NULL,
+ type TEXT NOT NULL DEFAULT 'announcement',
+ course_id INTEGER REFERENCES courses(id) ON DELETE SET NULL,
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ read_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
+
+
+CREATE TABLE IF NOT EXISTS lesson_progress (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ lesson_id INTEGER NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+ completed INTEGER NOT NULL DEFAULT 0,
+ updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE(user_id, lesson_id)
+);
+CREATE INDEX IF NOT EXISTS idx_lesson_progress_user ON lesson_progress(user_id);
+
+
+CREATE TABLE IF NOT EXISTS verification_codes (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ purpose TEXT NOT NULL CHECK(purpose IN ('email_verify','password_reset')),
+ code_hash TEXT NOT NULL,
+ expires_at TEXT NOT NULL,
+ attempts INTEGER NOT NULL DEFAULT 0,
+ used_at TEXT,
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_verification_codes_user ON verification_codes(user_id,purpose,created_at);

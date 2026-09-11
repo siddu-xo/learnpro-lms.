@@ -1,0 +1,8 @@
+node_modules
+.env
+*.db
+storage/materials/*
+.git
+.gitignore
+README_*.md
+SMOKE_TEST*.md

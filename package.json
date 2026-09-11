@@ -1,0 +1,21 @@
+{
+  "name": "learnpro-lms",
+  "version": "28.0.0",
+  "private": true,
+  "description": "LearnPro LMS v28 free-test deployment release",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js",
+    "test": "node qa-smoke.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "better-sqlite3": "^12.2.0",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "pdf-parse": "^1.1.1",
+    "nodemailer": "^7.0.6"
+  }
+}

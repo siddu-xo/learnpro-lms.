@@ -1,0 +1,16 @@
+LEARNPRO LMS v28 — START HERE
+
+Goal: test LearnPro online for free.
+
+1. Create a free Render account.
+2. Put this folder into a GitHub repository.
+3. Create a Render Web Service from the repository.
+4. Choose Free plan.
+5. Build: npm install
+6. Start: npm start
+7. Health check: /health
+8. Set ADMIN_EMAIL and ADMIN_PASSWORD in Render Environment.
+9. Deploy.
+10. Use the free onrender.com URL. Do NOT connect learnprolms.com yet.
+
+See FREE_TESTING.md for the complete beginner-friendly steps.

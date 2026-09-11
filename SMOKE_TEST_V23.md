@@ -1,0 +1,11 @@
+# v23 Security Smoke Test
+- [ ] Production refuses startup with weak/missing JWT_SECRET.
+- [ ] Production refuses default admin credentials.
+- [ ] Login rate limit triggers after repeated failures/requests.
+- [ ] Security response headers are present.
+- [ ] Oversized JSON body is rejected.
+- [ ] Unsupported upload types are rejected.
+- [ ] Payment verify rejects mismatched amount/currency/order or non-captured payments.
+- [ ] Razorpay webhook rejects invalid signatures.
+- [ ] Successful payment webhook/verification creates active enrollment.
+- [ ] Audit log records important auth/payment actions.
