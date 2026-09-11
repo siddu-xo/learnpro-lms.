@@ -18,3 +18,5 @@ RUN mkdir -p /app/storage/materials
 EXPOSE 3000
 
 VOLUME ["/app/storage", "/app/data"]
+
+CMD ["node", "server.js"]
