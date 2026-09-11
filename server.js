@@ -469,9 +469,9 @@ app.get('/api/public/courses/:id',(req,res)=>{
 app.get('/api/courses/:id',auth,(req,res)=>{
  const c=db.prepare('SELECT * FROM courses WHERE id=? AND published=1').get(req.params.id); if(!c) return res.status(404).json({error:'Course not found'});
  const enrolled=!!db.prepare("SELECT 1 FROM enrollments WHERE user_id=? AND course_id=? AND status='active'").get(req.user.id,c.id);
- const chapters=db.prepare('SELECT * FROM chapters WHERE course_id=? ORDER BY sort_order,id').all(c.id).map(ch=>({...ch,lessons:db.prepare(`SELECT l.id,l.title,l.is_demo,l.sort_order,CASE WHEN l.is_demo=1 OR ? THEN l.video_url ELSE NULL END video_url,COALESCE(lp.completed,0) completed FROM lessons l LEFT JOIN lesson_progress lp ON lp.lesson_id=l.id AND lp.user_id=? WHERE l.chapter_id=? ORDER BY l.sort_order,l.id`).all(enrolled,req.user.id,ch.id)}));
- const mcqs=db.prepare('SELECT id,chapter_id,question,option_a,option_b,option_c,option_d,correct_option,explanation,is_demo FROM mcqs WHERE course_id=? AND (is_demo=1 OR ?) ORDER BY id').all(c.id,enrolled);
- const materials=db.prepare('SELECT id,title,is_demo,CASE WHEN is_demo=1 OR ? THEN file_url ELSE NULL END file_url FROM materials WHERE course_id=? AND (is_demo=1 OR ?)').all(enrolled,c.id,enrolled);
+ const chapters=db.prepare('SELECT * FROM chapters WHERE course_id=? ORDER BY sort_order,id').all(c.id).map(ch=>({...ch,lessons:db.prepare(`SELECT l.id,l.title,l.is_demo,l.sort_order,CASE WHEN l.is_demo=1 OR ? THEN l.video_url ELSE NULL END video_url,COALESCE(lp.completed,0) completed FROM lessons l LEFT JOIN lesson_progress lp ON lp.lesson_id=l.id AND lp.user_id=? WHERE l.chapter_id=? ORDER BY l.sort_order,l.id`).all(enrolled ? 1 : 0,req.user.id,ch.id)}));
+ const mcqs=db.prepare('SELECT id,chapter_id,question,option_a,option_b,option_c,option_d,correct_option,explanation,is_demo FROM mcqs WHERE course_id=? AND (is_demo=1 OR ?) ORDER BY id').all(c.id,enrolled ? 1 : 0);
+ const materials=db.prepare('SELECT id,title,is_demo,CASE WHEN is_demo=1 OR ? THEN file_url ELSE NULL END file_url FROM materials WHERE course_id=? AND (is_demo=1 OR ?)').all(enrolled ? 1 : 0,c.id,enrolled ? 1 : 0);
  const totalLessons=db.prepare('SELECT COUNT(*) n FROM lessons l JOIN chapters ch ON ch.id=l.chapter_id WHERE ch.course_id=?').get(c.id).n; const completedLessons=db.prepare('SELECT COUNT(*) n FROM lesson_progress lp JOIN lessons l ON l.id=lp.lesson_id JOIN chapters ch ON ch.id=l.chapter_id WHERE lp.user_id=? AND ch.course_id=? AND lp.completed=1').get(req.user.id,c.id).n; const progress=totalLessons?Math.round(completedLessons/totalLessons*100):0; res.json({course:c,enrolled,progress,total_lessons:totalLessons,completed_lessons:completedLessons,chapters,mcqs,materials});
 });
 
@@ -589,12 +589,28 @@ app.post('/api/admin/mcqs/bulk-import-csv',auth,admin,upload.single('csv'),(req,
   }catch(e){res.status(400).json({error:'Could not parse CSV file.'});}
 });
 app.post('/api/admin/mcqs/import-pdf-commit',auth,admin,(req,res)=>{
-  const items=Array.isArray(req.body?.questions)?req.body.questions:[]; const courseId=Number(req.body.course_id)||null, chapterDefault=Number(req.body.chapter_id)||null;
-  if(!courseId||!items.length)return res.status(400).json({error:'Course and at least one question are required.'});
-  const clean=items.map(normalizeMcqRow).filter(validateMcq);
-  const stmt=db.prepare('INSERT INTO mcqs(course_id,chapter_id,question,option_a,option_b,option_c,option_d,correct_option,explanation,is_demo) VALUES(?,?,?,?,?,?,?,?,?,?)');
-  const tx=db.transaction(xs=>xs.map(q=>stmt.run(courseId,q.chapter_id?Number(q.chapter_id):chapterDefault,q.question,q.option_a,q.option_b,q.option_c,q.option_d,q.correct_option,q.explanation,q.is_demo).lastInsertRowid));
-  const ids=tx(clean); res.json({ok:true,imported:ids.length,skipped:items.length-clean.length});
+  try{
+    const items=Array.isArray(req.body?.questions)?req.body.questions:[];
+    const courseId=Number(req.body.course_id)||null;
+    const chapterDefault=Number(req.body.chapter_id)||null;
+    if(!courseId||!items.length)return res.status(400).json({error:'Course and at least one question are required.'});
+    if(!db.prepare('SELECT id FROM courses WHERE id=?').get(courseId)) return res.status(400).json({error:'Selected course was not found. Please choose the course again.'});
+    if(chapterDefault && !db.prepare('SELECT id FROM chapters WHERE id=? AND course_id=?').get(chapterDefault,courseId)) return res.status(400).json({error:'Selected chapter does not belong to the selected course. Please choose the chapter again.'});
+    const clean=items.map(normalizeMcqRow).filter(validateMcq);
+    if(!clean.length)return res.status(400).json({error:'No valid questions were found to import.'});
+    for(const q of clean){
+      const ch=q.chapter_id?Number(q.chapter_id):chapterDefault;
+      if(ch && !db.prepare('SELECT id FROM chapters WHERE id=? AND course_id=?').get(ch,courseId)){
+        q.chapter_id=null;
+      }
+    }
+    const stmt=db.prepare('INSERT INTO mcqs(course_id,chapter_id,question,option_a,option_b,option_c,option_d,correct_option,explanation,is_demo) VALUES(?,?,?,?,?,?,?,?,?,?)');
+    const tx=db.transaction(xs=>xs.map(q=>{const ch=q.chapter_id?Number(q.chapter_id):chapterDefault; const safeCh=ch && db.prepare('SELECT id FROM chapters WHERE id=? AND course_id=?').get(ch,courseId)?ch:null; return stmt.run(courseId,safeCh,q.question,q.option_a,q.option_b,q.option_c,q.option_d,q.correct_option,q.explanation,q.is_demo).lastInsertRowid;}));
+    const ids=tx(clean); res.json({ok:true,imported:ids.length,skipped:items.length-clean.length});
+  }catch(e){
+    console.error('PDF MCQ import commit failed:',e);
+    res.status(400).json({error:'Could not import the questions. Please check that the selected course and chapter are valid and try again.'});
+  }
 });
 
 app.post('/api/admin/mcqs/import-pdf', auth, admin, upload.single('pdf'), async (req,res)=>{
