@@ -22,7 +22,7 @@ html{scroll-behavior:smooth}body{letter-spacing:-.01em}button{transition:transfo
 <section class="section" id="features"><div class="container"><h2>Everything students need to learn</h2><p class="section-sub">A simple experience for students and a powerful control panel for you.</p><div class="grid4"><div class="panel"><b>📄 Study Materials</b><p class="muted">Organized notes and study files by course and chapter.</p></div><div class="panel"><b>📝 MCQ Practice</b><p class="muted">Demo questions, full tests, results and explanations.</p></div><div class="panel"><b>📚 Materials</b><p class="muted">Organize notes and study files by course and chapter.</p></div><div class="panel"><b>🔐 2 Devices</b><p class="muted">Maximum two active sessions per student.</p></div></div></div></section>
 <section class="section" id="courses"><div class="container"><h2>Courses</h2><p class="section-sub">Browse published courses. Selected demo MCQs and study materials are available before purchase.</p><div id="publicCourses" class="courses"><div class="panel"><h3>Loading courses…</h3><p class="muted">Fetching published courses.</p></div></div></div></section>
 <div class="footer">© 2026 LearnPro LMS • MCQs & Study Materials</div></div>
-<div id="loginPage" class="hidden login"><div class="login-card"><div class="brand" style="margin-bottom:20px"><span class="cap"></span>LearnPro</div><h2 id="loginTitle">Student Login</h2><div id="authNotice" class="notice danger hidden"></div><div class="form"><input id="loginName" class="hidden" placeholder="Full name"/><input id="loginEmail" type="email" placeholder="Email"/><input id="loginPassword" type="password" placeholder="Password (minimum 8 characters)"/><button id="authSubmit" class="btn primary" onclick="loginStudent()">Login</button><button id="forgotBtn" class="btn" onclick="forgotPassword()">Forgot password?</button><button id="authSwitch" class="btn outline" onclick="toggleAuth()">New here? Create an account</button><button class="btn outline" onclick="showAdminLogin()">Admin Login</button><button class="btn" onclick="backHome()">Back to website</button></div></div></div>
+<div id="loginPage" class="hidden login"><div class="login-card"><div class="brand" style="margin-bottom:20px"><span class="cap"></span>LearnPro</div><h2 id="loginTitle">Student Login</h2><div id="authNotice" class="notice danger hidden"></div><div class="form"><input id="loginName" class="hidden" placeholder="Full name"/><input id="loginEmail" type="email" placeholder="Email"/><input id="loginPassword" type="password" placeholder="Password (minimum 8 characters)"/><button id="authSubmit" class="btn primary" onclick="loginStudent()">Login</button><button id="forgotBtn" class="btn" onclick="forgotPassword()">Forgot password?</button><button id="authSwitch" class="btn outline" onclick="toggleAuth()">New here? Create an account</button><button class="btn outline" onclick="freeTestStudent()">🎓 Enter Free Test Student</button><button class="btn outline" onclick="showAdminLogin()">Admin Login</button><button class="btn" onclick="backHome()">Back to website</button></div></div></div>
 <div id="adminLogin" class="hidden login"><div class="login-card"><div class="brand"><span class="cap"></span>LearnPro Admin</div><h2>Admin Login</h2><p class="muted">Secure admin account login. Student accounts cannot enter this panel.</p><div class="form"><input placeholder="Admin email" value=""/><input type="password" placeholder="Password" value=""/><button class="btn primary" onclick="loginAdmin()">Enter Admin Panel</button><button class="btn" onclick="backHome()">Back</button></div></div></div>
 <div id="studentApp" class="hidden app"></div><div id="adminApp" class="hidden app"></div>
 <div id="modal" class="hidden modal"><div class="modal-card" id="modalContent"></div></div>
@@ -54,7 +54,7 @@ async function submitStudentAuth(){
   const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const d=await r.json();
   if(!r.ok) throw new Error(d.error||'Authentication failed');
   if(authMode==='register' && d.requires_verification){
-    const code=prompt('Enter the 6-digit verification code sent to '+d.email+':'); if(!code)return;
+    const code=prompt(d.dev_code ? ('Development test code for '+d.email+': '+d.dev_code+'\n\nEnter the 6-digit code to verify:') : ('Enter the 6-digit verification code sent to '+d.email+':')); if(!code)return;
     const vr=await fetch('/api/auth/verify-email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:d.email,code})}); const vd=await vr.json(); if(!vr.ok) throw new Error(vd.error||'Verification failed'); alert(vd.message); authMode='login'; renderAuthForm(); return;
   }
   if(d.user?.role!=='student') throw new Error('Student account required.');
@@ -62,10 +62,17 @@ async function submitStudentAuth(){
  }catch(e){document.getElementById('authNotice').textContent=e.message;document.getElementById('authNotice').classList.remove('hidden')}
 }
 function loginStudent(){submitStudentAuth()}
+async function freeTestStudent(){
+ try{
+  const r=await fetch('/api/auth/free-test-student',{method:'POST'}); const d=await r.json();
+  if(!r.ok) throw new Error(d.error||'Free test student access is unavailable.');
+  localStorage.setItem('learnproToken',d.token); localStorage.setItem('learnproStudent','1'); localStorage.removeItem('learnproRole'); goStudent();
+ }catch(e){alert(e.message)}
+}
 async function forgotPassword(){
  const email=(document.getElementById('loginEmail').value||prompt('Enter your registered email address:')||'').trim(); if(!email)return;
  try{let r=await fetch('/api/auth/request-password-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});let d=await r.json();if(!r.ok)throw new Error(d.error||'Could not request reset');
-   const code=prompt('Enter the 6-digit reset code sent to your email:'); if(!code)return;
+   const code=prompt(d.dev_code ? ('Development reset code: '+d.dev_code+'\n\nEnter the 6-digit reset code:') : 'Enter the 6-digit reset code sent to your email:'); if(!code)return;
    const pw=prompt('Enter your new password (minimum 8 characters):'); if(!pw)return;
    r=await fetch('/api/auth/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,code,password:pw})});d=await r.json();if(!r.ok)throw new Error(d.error||'Reset failed');alert(d.message);}
  catch(e){alert(e.message)}
@@ -254,7 +261,33 @@ async function saveAdminLesson(chapterId,courseId){try{await adminFetch('/api/ad
 async function editAdminLesson(id,courseId,chapterId){try{const d=await adminFetch('/api/admin/courses');const l=d.courses.flatMap(c=>c.chapters).flatMap(ch=>ch.lessons).find(x=>x.id===id);if(!l)return;openModal(`<h2>Edit Class</h2><div class="form"><input id="lessonTitle" value="${esc(l.title)}" placeholder="Class title"/><input id="lessonVideo" value="${esc(l.video_url||'')}" placeholder="Secure video reference / playback ID"/><select id="lessonDemo"><option value="0" ${!l.is_demo?'selected':''}>Premium class</option><option value="1" ${l.is_demo?'selected':''}>Demo class</option></select><button class="btn primary" onclick="updateAdminLesson(${id},${courseId})">Save Changes</button></div>`)}catch(e){alert(e.message)}}
 async function updateAdminLesson(id,courseId){try{await adminFetch('/api/admin/lessons/'+id,{method:'PUT',body:JSON.stringify({title:document.getElementById('lessonTitle').value.trim(),video_url:document.getElementById('lessonVideo').value.trim(),is_demo:Number(document.getElementById('lessonDemo').value),sort_order:0})});closeModal();openCourseBuilder(courseId)}catch(e){alert(e.message)}}
 async function deleteAdminLesson(id,courseId){if(!confirm('Delete this class?'))return;try{await adminFetch('/api/admin/lessons/'+id,{method:'DELETE'});openCourseBuilder(courseId)}catch(e){alert(e.message)}}
-async function uploadMCQPDF(){const input=document.getElementById('mcqPdf');if(!input.files[0]){alert('Please select a PDF first.');return}const fd=new FormData();fd.append('pdf',input.files[0]);const token=localStorage.getItem('learnproToken')||'';try{const r=await fetch('/api/admin/mcqs/import-pdf',{method:'POST',headers:{Authorization:'Bearer '+token},body:fd});const d=await r.json();if(!r.ok)throw new Error(d.error||'Import failed');const rows=(d.questions||[]).map((q,i)=>`<div class="panel" style="margin-top:10px"><b>Q${i+1}. ${q.question}</b><div class="muted" style="margin-top:6px">A. ${q.option_a}<br>B. ${q.option_b}<br>C. ${q.option_c}<br>D. ${q.option_d}</div><div style="margin-top:8px"><b>Correct:</b> ${q.correct_option||'Not detected'} &nbsp; <b>Explanation:</b> ${q.explanation||'Not detected'}</div></div>`).join('');openModal(`<h2>MCQ Preview</h2><p class="muted">${d.ocr_used?'OCR was used for this scanned PDF.':'Text was extracted directly from the PDF.'} ${d.extracted_count} questions detected.</p>${rows||'<div class="notice">No structured MCQs were detected. Try a clearer PDF format.</div>'}<div style="margin-top:16px"><button class="btn primary" onclick="closeModal()">Review & Import Later</button></div>`)}catch(e){alert(e.message)}}
+async function uploadMCQPDF(){
+ const input=document.getElementById('mcqPdf');
+ const course=document.getElementById('mcqPdfCourse')?.value;
+ const chapter=document.getElementById('mcqPdfChapter')?.value||'';
+ const demo=document.getElementById('mcqPdfDemo')?.value||'0';
+ if(!input?.files[0]||!course){alert('Choose a PDF and course first.');return}
+ const fd=new FormData();fd.append('pdf',input.files[0]);
+ try{
+  const r=await fetch('/api/admin/mcqs/import-pdf',{method:'POST',headers:{Authorization:'Bearer '+(localStorage.getItem('learnproToken')||'')},body:fd});
+  const d=await r.json(); if(!r.ok) throw new Error(d.error||'Import failed');
+  window.pendingPdfImport={course_id:Number(course),chapter_id:chapter?Number(chapter):null,is_demo:Number(demo),questions:d.questions||[]};
+  const rows=(d.questions||[]).map((q,i)=>`<div class="panel pdf-preview-row" data-i="${i}" style="margin-top:10px"><b>Q${i+1}. ${esc(q.question)}</b><div class="muted" style="margin-top:6px">A. ${esc(q.option_a)}<br>B. ${esc(q.option_b)}<br>C. ${esc(q.option_c)}<br>D. ${esc(q.option_d)}</div><div class="form" style="margin-top:8px"><label>Correct answer <select class="pdf-correct"><option value="A" ${q.correct_option==='A'?'selected':''}>A</option><option value="B" ${q.correct_option==='B'?'selected':''}>B</option><option value="C" ${q.correct_option==='C'?'selected':''}>C</option><option value="D" ${q.correct_option==='D'?'selected':''}>D</option></select></label><textarea class="pdf-exp" placeholder="Explanation">${esc(q.explanation||'')}</textarea></div></div>`).join('');
+  openModal(`<h2>MCQ PDF Review</h2><p class="muted">${d.ocr_used?'OCR was used for this scanned PDF.':'Text was extracted directly from the PDF.'} ${d.extracted_count} question(s) detected. Review answers and explanations before importing.</p>${rows||'<div class="notice danger">No structured MCQs were detected. Try a clearer PDF.</div>'}<div class="admin-actions" style="margin-top:16px"><button class="btn outline" onclick="closeModal()">Cancel</button>${d.questions?.length?'<button class="btn primary" onclick="commitPendingPDFImport()">✅ Import Questions</button>':''}</div>`);
+ }catch(e){alert(e.message)}
+}
+async function commitPendingPDFImport(){
+ const p=window.pendingPdfImport; if(!p?.questions?.length)return alert('No questions ready to import.');
+ const rows=[...document.querySelectorAll('.pdf-preview-row')].map((row,i)=>({ ...p.questions[i], correct_option:row.querySelector('.pdf-correct')?.value||p.questions[i].correct_option, explanation:row.querySelector('.pdf-exp')?.value||p.questions[i].explanation||'', is_demo:p.is_demo, chapter_id:p.chapter_id }));
+ try{const r=await fetch('/api/admin/mcqs/import-pdf-commit',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+(localStorage.getItem('learnproToken')||'')},body:JSON.stringify({course_id:p.course_id,chapter_id:p.chapter_id,questions:rows})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Import failed');window.pendingPdfImport=null;openModal(`<h3>PDF Import Complete</h3><p>Imported <b>${d.imported}</b> questions. Skipped <b>${d.skipped}</b>.</p><button class="btn primary" onclick="closeModal()">Close</button>`)}catch(e){alert(e.message)}
+}
+function openAdminPDF(courseId=null){
+ adminFetch('/api/admin/courses').then(d=>{
+  const courses=d.courses||[]; const cid=courseId==null?'':String(courseId);
+  openModal(`<h2>Import MCQs from PDF / OCR</h2><p class="muted">Upload a text PDF or scanned PDF. Scanned PDFs use OCR. You will review every question before anything is imported.</p><div class="form"><select id="mcqPdfCourse"><option value="">Select course</option>${courses.map(c=>`<option value="${c.id}" ${String(c.id)===cid?'selected':''}>${esc(c.title)}</option>`).join('')}</select><input id="mcqPdf" type="file" accept="application/pdf,.pdf"/><input id="mcqPdfChapter" type="number" min="1" placeholder="Default Chapter ID (optional)"/><select id="mcqPdfDemo"><option value="1">Import as Demo / Free</option><option value="0">Import as Premium</option></select><button class="btn primary" onclick="uploadMCQPDF()">Upload PDF & Preview</button></div>`);
+ }).catch(e=>alert(e.message));
+}
+
 
 async function openAdminMaterial(courseId=''){
  try{const d=await adminFetch('/api/admin/courses');const courses=d.courses||[];
