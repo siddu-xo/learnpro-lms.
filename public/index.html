@@ -28,8 +28,10 @@ html{scroll-behavior:smooth}body{letter-spacing:-.01em}button{transition:transfo
 <div id="modal" class="hidden modal"><div class="modal-card" id="modalContent"></div></div>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script>
+// LearnPro LMS v32 browser fixes
 const courses={accounting:{name:'CA Foundation — Accounting',price:4999},bcom:{name:'B.Com Semester',price:2999},stocks:{name:'Stock Market Basics',price:1999}};
 let currentCourse='accounting';let purchased=false;
+function esc(v){const s=String(v==null?'':v);return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('\"','&quot;').replaceAll("'",'&#39;');}
 function hideAll(){['publicPage','loginPage','adminLogin','studentApp','adminApp'].forEach(id=>document.getElementById(id).classList.add('hidden'));document.getElementById('publicNav').classList.add('hidden');document.getElementById('appNav').classList.remove('hidden')}
 function backHome(){document.getElementById('loginPage').classList.add('hidden');document.getElementById('adminLogin').classList.add('hidden');document.getElementById('publicPage').classList.remove('hidden');document.getElementById('publicNav').classList.remove('hidden');document.getElementById('appNav').classList.add('hidden')}
 let authMode='login';
@@ -81,7 +83,7 @@ async function loadPublicCourses(){const box=document.getElementById('publicCour
 function showCourse(courseId){window.currentCourseId=Number(courseId)||1;if(!localStorage.getItem('learnproToken')){renderPublicCourse(window.currentCourseId);return}hideAll();document.getElementById('studentApp').classList.remove('hidden');renderCourse()}
 function showDemo(){renderPublicCourse(window.currentCourseId||1)}
 
-async function adminFetch(url,opts={}){const token=localStorage.getItem('learnproToken')||''; const headers=Object.assign({'Content-Type':'application/json','Authorization':'Bearer '+token},opts.headers||{}); const r=await fetch(url,Object.assign({},opts,{headers})); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||'Request failed'); return d;}
+async function adminFetch(url,opts={}){const token=localStorage.getItem('learnproToken')||''; const headers=Object.assign({'Content-Type':'application/json','Authorization':'Bearer '+token},opts.headers||{}); const r=await fetch(url,Object.assign({},opts,{headers})); const d=await r.json().catch(()=>({})); if(r.status===401){localStorage.removeItem('learnproToken');localStorage.removeItem('learnproRole');localStorage.removeItem('learnproStudent'); throw new Error('Your session has expired or is not an admin session. Please log in again.');} if(!r.ok) throw new Error(d.error||'Request failed'); return d;}
 async function openAdminStudents(){
   try{const rows=await adminFetch('/api/admin/students'); renderAdminStudents(rows);}catch(e){alert(e.message)}
 }
@@ -288,6 +290,6 @@ function openNewMCQ(courseId=0){
 async function importMCQCSV(){const f=document.getElementById('mcqCsv')?.files[0];const course=document.getElementById('mcqImportCourse')?.value;if(!f||!course)return alert('Choose a CSV and enter a Course ID.');const fd=new FormData();fd.append('csv',f);fd.append('course_id',course);fd.append('chapter_id',document.getElementById('mcqImportChapter')?.value||'');const r=await fetch('/api/admin/mcqs/bulk-import-csv',{method:'POST',headers:{Authorization:'Bearer '+(localStorage.getItem('learnproToken')||'')},body:fd});const d=await r.json();if(!r.ok)return alert(d.error||'Import failed');openModal(`<h3>Import Complete</h3><p>Imported <b>${d.imported}</b> questions. Skipped <b>${d.skipped}</b>.</p><button class='btn primary' onclick='closeModal()'>Close</button>`)}
 async function saveNewMCQ(courseId){const body={course_id:courseId,question:document.getElementById('newQ').value,option_a:document.getElementById('newA').value,option_b:document.getElementById('newB').value,option_c:document.getElementById('newC').value,option_d:document.getElementById('newD').value,correct_option:document.getElementById('newAns').value,explanation:document.getElementById('newExp').value,is_demo:document.getElementById('newDemo').value};const r=await fetch('/api/admin/mcqs',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+(localStorage.getItem('learnproToken')||'')},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)return alert(d.error||'Save failed');alert('MCQ saved');closeModal()}
 function openModal(html){document.getElementById('modalContent').innerHTML=html;document.getElementById('modal').classList.remove('hidden')};function closeModal(){document.getElementById('modal').classList.add('hidden')}
-window.addEventListener('DOMContentLoaded',()=>{renderAuthForm();loadPublicCourses(); const t=localStorage.getItem('learnproToken'); const role=localStorage.getItem('learnproRole'); if(t&&role==='admin') goAdmin(); else if(t) goStudent();});
+window.addEventListener('DOMContentLoaded',()=>{renderAuthForm();loadPublicCourses(); const t=localStorage.getItem('learnproToken'); const role=localStorage.getItem('learnproRole'); const wantsAdmin=location.pathname.replace(/\/$/,'')==='/admin'; if(wantsAdmin){ if(t&&role==='admin') goAdmin(); else showAdminLogin(); } else if(t&&role==='admin') goAdmin(); else if(t&&localStorage.getItem('learnproStudent')) goStudent(); else backHome();});
 </script>
 </body></html>
