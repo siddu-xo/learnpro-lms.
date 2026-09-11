@@ -615,7 +615,9 @@ app.post('/api/payments/confirm-demo',auth,(req,res)=>{const {course_id,payment_
 
 app.get('/health',(req,res)=>res.json({ok:true,service:'LearnPro LMS'}));
 app.use((req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
-const server = app.listen(PORT,()=>console.log(`LearnPro LMS running at http://localhost:${PORT}`));
+const server = app.listen(PORT, '0.0.0.0', () =>
+  console.log(`LearnPro LMS running on port ${PORT}`)
+);
 function shutdown(signal){
   console.log(`${signal}: shutting down LearnPro LMS...`);
   server.close(()=>{ try{ db.close(); }catch(e){} process.exit(0); });
